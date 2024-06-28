@@ -31,7 +31,6 @@ class Body(pygame.sprite.Sprite):
         
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(0, 0)
-        self.offset = pygame.Vector2(radius, radius)
 
         self.radius = radius
         self.mass = mass
@@ -63,6 +62,9 @@ class Body(pygame.sprite.Sprite):
     
     def stop(self):
         self.vel = pygame.Vector2(0, 0)
+    
+    def draw(self, window):
+        window.blit(self.image, (self.rect.x, self.rect.y))
 
 
 class Node:
@@ -118,11 +120,22 @@ class Node:
         for child in self.children:
             child.draw(window)
     
-    def drawInfluence(self, window, pos):
-        if self.s / dist(self.center, pos) > THETA:
+    def drawGravity(self, window, pos):
+        if not self.internal:
             pygame.draw.rect(window, (0, 0, 255), self.rect, 1)
+        elif self.s / dist(self.center, pos) > THETA:
             for child in self.children:
-                child.drawInfluence(window, pos)
+                child.drawGravity(window, pos)
+        else:
+            pygame.draw.rect(window, (0, 255, 0), self.rect, 1)
+    
+    def drawMerge(self, window, body):
+        if body.rect.colliderect(self.rect):
+            if not self.internal:
+                pygame.draw.rect(window, (0, 0, 255), self.rect, 1)
+            else:
+                for child in self.children:
+                    child.drawMerge(window, body)
         else:
             pygame.draw.rect(window, (0, 255, 0), self.rect, 1)
 
@@ -163,7 +176,8 @@ def handleGravity(body, root, theta):
         else:
             calculateGravity(body, root.mass, root.center)
 
-def handleMerges(root):
+def handleMerges(body, root):
+    global bodies
     pass
 
 # Window and Clock Setup
@@ -180,7 +194,8 @@ click_frame = False
 gravity_on = True
 trails = False
 draw_tree = False
-draw_influence = False
+draw_gravity = False
+draw_merge = False
 
 # Constants
 G = 1
@@ -191,7 +206,7 @@ bodies = pygame.sprite.Group()
 
 star = Body(400, 400, 10000, 50)
 planets = []
-for i in range(9999):
+for i in range(999):
     r = math.sqrt(random.random()) * (width / 2 - star.radius) + star.radius
     theta = random.random() * 2 * math.pi
     planet = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + width / 2, 1, 1)
@@ -218,6 +233,7 @@ particle_nums = []
 construct_times = []
 gravity_times = []
 
+root = constructQuadTree(bodies)
 game_on = True
 while game_on:
     if not trails:
@@ -264,20 +280,27 @@ while game_on:
                 gravity_on = not gravity_on
             elif event.key == K_1:
                 draw_tree = False
-                draw_influence = False
+                draw_gravity = False
+                draw_merge = False
                 trails = not trails
             elif event.key == K_2:
                 trails = False
-                draw_influence = False
+                draw_gravity = False
+                draw_merge = False
                 draw_tree = not draw_tree
             elif event.key == K_3:
                 trails = False
                 draw_tree = False
-                draw_influence = not draw_influence
+                draw_merge = False
+                draw_gravity = not draw_gravity
+            elif event.key == K_4:
+                trails = False
+                draw_tree = False
+                draw_gravity = False
+                draw_merge = not draw_merge
         elif event.type == KEYUP:
             if event.key == K_LEFT or event.key == K_RIGHT:
                 fps = 100
-
 
     if not paused or click_frame:
         start = time.perf_counter()
@@ -297,16 +320,26 @@ while game_on:
                 body.update()
         click_frame = False
         ticks += 1
-    else:
-        root = constructQuadTree(bodies)
+
+    # root = constructQuadTree(bodies)
 
     # Drawing the Schwarzschild Radius of the star
     # pygame.draw.circle(window, (50, 50, 50, 0.5), star.pos, 2 * G * star.mass / C ** 2, width=5)
 
     if draw_tree: 
         root.draw(window)
-    if draw_influence:
-        root.drawInfluence(window, tupleToVector2(pygame.mouse.get_pos()))
+    if draw_gravity:
+        root.drawGravity(window, tupleToVector2(pygame.mouse.get_pos()))
+    if draw_merge:
+        body_clicked = False
+        for body in bodies:
+            if body.clicked:
+                body_clicked = True
+                root.drawMerge(window, body)
+        if not body_clicked:
+            pos = pygame.mouse.get_pos()
+            root.drawMerge(window, Body(pos[0], pos[1], 0, 25))
+            pygame.draw.circle(window, (100, 100, 100, 0.5), pos, 25)
     bodies.draw(window)
     pygame.display.update()
     clock.tick(fps)  
