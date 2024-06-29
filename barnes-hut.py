@@ -218,6 +218,8 @@ gravity_on = True
 merge_on = True
 plot_diagnostics = False
 render = False
+pygame.display.set_caption("Simulation (Diagnostics {}, Render {})".format("On" if plot_diagnostics else "Off", 
+                                                                           "On" if render else "Off"))
 
 # Draw Modes
 trails = False
@@ -267,8 +269,6 @@ merge_times = []
 scene = []
 
 # Game Loop
-pygame.display.set_caption("Simulation (Diagnostics {}, Render {})".format("On" if plot_diagnostics else "Off", 
-                                                                           "On" if render else "Off"))
 sim_on = True
 while sim_on:
     if not trails:
@@ -412,6 +412,7 @@ print("Average Construction Time: {}".format(sum(construct_times) / len(construc
 print("Average Gravity Time: {}".format(sum(gravity_times) / len(gravity_times)))
 print("Average Merge Time: {}".format(sum(merge_times) / len(merge_times)))
 
+# ---------- Post Simulation (In Progress) ----------
 if render:
     idx = 0
     left, right = False, False
