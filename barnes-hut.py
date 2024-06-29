@@ -4,25 +4,26 @@ import math
 import random
 import time
 import sys
+import matplotlib.pyplot as plt
+import numpy as np
 
 sys.setrecursionlimit(10000)
 
+# Constants
+G = 1
+C = 1e20
+THETA = 0.9
+DT = 1
+
 pygame.init()
+width, height = 800, 800
+window = pygame.display.set_mode((width, height))
 
 def dist(p1, p2):
     return math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2)
 
 def tupleToVector2(p):
     return pygame.Vector2(p[0], p[1])
-
-def insert(arr, val):
-    if len(arr) == 0:
-        arr.insert(0, val)
-    else:
-        idx = 0
-        while arr[idx] > val and idx <= len(arr):
-            idx += 1
-        arr.insert(idx, val)
 
 
 class Body(pygame.sprite.Sprite):
@@ -33,31 +34,36 @@ class Body(pygame.sprite.Sprite):
         self.vel = pygame.Vector2(0, 0)
 
         self.radius = radius
+        self.visual_radius = math.ceil(radius)
         self.mass = mass
 
-        self.image = pygame.Surface((radius * 2, radius * 2), flags=SRCALPHA)
+        self.image = pygame.Surface((self.visual_radius * 2, self.visual_radius * 2), flags=SRCALPHA)
         self.image.fill((255, 255, 255, 0))
-        pygame.draw.circle(self.image, (255, 0, 0), (radius, radius), radius)
-        self.rect = pygame.Rect(x - radius, y - radius, radius * 2, radius * 2)
+        pygame.draw.circle(self.image, (255, 0, 0), (self.visual_radius, self.visual_radius), self.visual_radius)
+        self.rect = pygame.Rect(x - self.visual_radius, y - self.visual_radius, self.visual_radius * 2, self.visual_radius * 2)
         
         self.clicked = False
     
     def setPos(self, pos):
         self.pos = pos
-        self.rect.update(pos.x - self.radius, pos.y - self.radius, self.radius * 2, self.radius * 2)
+        self.rect.update(pos.x - self.visual_radius, pos.y - self.visual_radius, self.visual_radius * 2, self.visual_radius * 2)
+    
+    def setVel(self, vel):
+        self.vel = vel
     
     def setRadius(self, radius):
         self.radius = radius
-        self.image = pygame.Surface((radius * 2, radius * 2), flags=SRCALPHA)
+        self.visual_radius = math.ceil(radius)
+        self.image = pygame.Surface((self.visual_radius * 2, self.visual_radius * 2), flags=SRCALPHA)
         self.image.fill((255, 255, 255, 0))
-        pygame.draw.circle(self.image, (255, 0, 0), (radius, radius), radius)
-        self.rect = pygame.Rect(self.pos.x - radius, self.pos.y - radius, radius * 2, radius * 2)
+        pygame.draw.circle(self.image, (255, 0, 0), (self.visual_radius, self.visual_radius), self.visual_radius)
+        self.rect = pygame.Rect(self.pos.x - self.visual_radius, self.pos.y - self.visual_radius, self.visual_radius * 2, self.visual_radius * 2)
     
     def setMass(self, mass):
         self.mass = mass
     
     def update(self):
-        self.pos += self.vel
+        self.pos += self.vel * DT
         self.rect.update(self.pos.x - self.radius, self.pos.y - self.radius, self.radius * 2, self.radius * 2)
     
     def stop(self):
@@ -68,49 +74,53 @@ class Body(pygame.sprite.Sprite):
 
 
 class Node:
-    def __init__(self, x, y, s, depth=5000):
+    def __init__(self, x, y, s, depth=100):
         self.bodies = []
         self.children = []
         self.s = s
+        self.half_s = round(s / 2)
         self.rect = pygame.Rect(x, y, s, s)
 
         self.mass = 0
         self.weighted_pos = pygame.Vector2(0, 0)
-        self.center = pygame.Vector2(x + s / 2, y + s / 2)
+        self.center = pygame.Vector2(x + self.half_s, y + self.half_s)
 
         self.internal = False
         self.depth = depth
     
     def addBody(self, body):
-        # insert(self.bodies, body)
-        self.bodies.append(body)
         self.mass += body.mass
-        self.weighted_pos.x += body.pos.x * body.mass
-        self.weighted_pos.y += body.pos.y * body.mass
+        self.weighted_pos += body.pos * body.mass
         self.center = self.weighted_pos / self.mass
 
         if self.depth > 0:
-            if len(self.bodies) == 2:  # The node becomes registered as internal
+            if self.internal:  # The node is an internal node
+                idx = self.selectChild(body)
+                self.children[idx].addBody(body)
+            elif len(self.bodies) == 1:  # The node becomes registered as an internal node
                 self.internal = True
-                self.children = [Node(self.rect.x, self.rect.y, self.s / 2, self.depth - 1),
-                                 Node(self.rect.x + self.s / 2, self.rect.y, self.s / 2, self.depth - 1),
-                                 Node(self.rect.x, self.rect.y + self.s / 2, self.s / 2, self.depth - 1),
-                                 Node(self.rect.x + self.s / 2, self.rect.y + self.s / 2, self.s / 2, self.depth - 1)]
+                self.children = [Node(self.rect.x, self.rect.y, self.half_s, self.depth - 1),
+                                 Node(self.rect.x + self.half_s, self.rect.y, self.half_s, self.depth - 1),
+                                 Node(self.rect.x, self.rect.y + self.half_s, self.half_s, self.depth - 1),
+                                 Node(self.rect.x + self.half_s, self.rect.y + self.half_s, self.half_s, self.depth - 1)]
+                self.bodies.append(body)
                 for body in self.bodies:
                     idx = self.selectChild(body)
                     self.children[idx].addBody(body)
-            elif len(self.bodies) > 2:
-                idx = self.selectChild(body)
-                self.children[idx].addBody(body)
+                self.bodies.clear()
+            else:  # The node is an external node
+                self.bodies.append(body)
+        else:  # The node is an external node
+            self.bodies.append(body)
 
     def selectChild(self, body):
-        if body.pos.x >= self.rect.x + self.s / 2:
-            if body.pos.y >= self.rect.y + self.s / 2:
+        if body.pos.x >= self.rect.x + self.half_s:
+            if body.pos.y >= self.rect.y + self.half_s:
                 return 3
             else:
                 return 1
         else:
-            if body.pos.y >= self.rect.y + self.s / 2:
+            if body.pos.y >= self.rect.y + self.half_s:
                 return 2
             else:
                 return 0
@@ -139,6 +149,7 @@ class Node:
         else:
             pygame.draw.rect(window, (0, 255, 0), self.rect, 1)
 
+
 def constructQuadTree(bodies):
     min_x, max_x = 0, width
     min_y, max_y = 0, height
@@ -162,90 +173,114 @@ def calculateGravity(body, mass, pos):
         mag = G * body.mass * mass / radius ** 2
         dir = pos - body.pos
         dir.scale_to_length(mag / body.mass)
-        body.vel += dir
+        body.vel += dir * DT
         if body.vel.magnitude() > C:
             body.vel.scale_to_length(C)
 
-def handleGravity(body, root, theta):
+def handleGravity(body, root):
     if not root.internal:
         calculateGravity(body, root.mass, root.center)
     else:
-        if root.s / dist(body.pos, root.center) > theta:
+        if root.s / dist(body.pos, root.center) > THETA:
             for child in root.children:
-                handleGravity(body, child, theta)
+                handleGravity(body, child)
         else:
             calculateGravity(body, root.mass, root.center)
 
 def handleMerges(body, root):
     global bodies
-    pass
+    if body.rect.colliderect(root.rect):
+        if not root.internal:
+            for test in root.bodies:
+                if body is not test:
+                    radius = dist(body.pos, test.pos)
+                    if radius < body.radius + test.radius:
+                        body.setVel((body.mass * body.vel + test.mass * test.vel) / (body.mass + test.mass))
+                        body.setPos((body.mass * body.pos + test.mass * test.pos) / (body.mass + test.mass))
+                        body.setMass(body.mass + test.mass)
+                        body.setRadius(math.sqrt(body.radius ** 2 + test.radius ** 2))
+                        root.bodies.remove(test)
+                        bodies.remove(test)
+        else:
+            for child in root.children:
+                handleMerges(body, child)
 
-# Window and Clock Setup
-width, height = 800, 800
-window = pygame.display.set_mode((width, height))
+# Timing and Events
 clock = pygame.time.Clock()
-fps = 100  
+fps = 100
 past_pos = pygame.Vector2(0, 0)
 
-# Flags
+# Boolean Flags
 paused = False
 clicked = False
 click_frame = False
 gravity_on = True
+merge_on = True
+plot_diagnostics = False
+render = False
+
+# Draw Modes
 trails = False
 draw_tree = False
 draw_gravity = False
 draw_merge = False
 
-# Constants
-G = 1
-C = 1e20
-THETA = 0.5
+# Setting Up Initial State
+bodies = []
 
-bodies = pygame.sprite.Group()
-
-star = Body(400, 400, 10000, 50)
+stars = [Body(400, 400, 10000, 50)]
+star = stars[0]
 planets = []
 for i in range(999):
-    r = math.sqrt(random.random()) * (width / 2 - star.radius) + star.radius
+    r = math.sqrt(random.random()) * (width / 4 - star.radius) + star.radius
     theta = random.random() * 2 * math.pi
-    planet = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + width / 2, 1, 1)
+    planet = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 0.01, 0.5)
     vel = (planet.pos - star.pos).rotate(90)
-    vel.scale_to_length(math.sqrt(G * star.mass / dist(planet.pos, star.pos)) + random.randint(-2, 2))
+    vel.scale_to_length(math.sqrt(G * star.mass / dist(planet.pos, star.pos)) * (random.random() * 0.4 + 0.8))
     # vel.scale_to_length(random.random() * math.sqrt(G * star.mass / dist(planet.pos, star.pos)))
     # vel.scale_to_length(random.random() * 5)
     if vel.magnitude() > C:
         vel.scale_to_length(C)
-    planet.vel = vel
+    planet.setVel(vel)
     planets.append(planet)
 
-bodies.add(star, *planets)
+for star in stars:
+    bodies.append(star)
+for planet in planets:
+    bodies.append(planet)
 
 """
-bodies.add(Body(random.randint(100, 700), random.randint(100, 700), 25, 10),
-           Body(random.randint(100, 700), random.randint(100, 700), 25, 10),
-           Body(random.randint(100, 700), random.randint(100, 700), 25, 10),
-           Body(random.randint(100, 700), random.randint(100, 700), 25, 10))
+for i in range(8):
+    bodies.append(Body(random.randint(100, 700), random.randint(100, 700), 25, 10))
 """
 
+num_bodies = len(bodies)
+
+# Diagnostics Data
 ticks = 0
 particle_nums = []
 construct_times = []
 gravity_times = []
+merge_times = []
 
-root = constructQuadTree(bodies)
-game_on = True
-while game_on:
+# Render Data
+scene = []
+
+# Game Loop
+pygame.display.set_caption("Simulation (Diagnostics {}, Render {})".format("On" if plot_diagnostics else "Off", 
+                                                                           "On" if render else "Off"))
+sim_on = True
+while sim_on:
     if not trails:
         window.fill((0, 0, 0))
-
     for event in pygame.event.get():
         if event.type == QUIT:
-            game_on = False
+            sim_on = False
         elif event.type == MOUSEBUTTONDOWN:
+            event_pos = tupleToVector2(event.pos)
             clicked = True
             for body in bodies:
-                if dist(body.pos, tupleToVector2(event.pos)) < body.radius:
+                if dist(body.pos, event_pos) < body.radius:
                     body.clicked = True
                     break
         elif event.type == MOUSEBUTTONUP:
@@ -253,15 +288,16 @@ while game_on:
             for body in bodies:
                 body.clicked = False
         elif event.type == MOUSEMOTION:
+            event_pos = tupleToVector2(event.pos)
             body_clicked = False
             for body in bodies:
                 if body.clicked:
                     body_clicked = True
-                    body.setPos(body.pos + tupleToVector2(event.pos) - past_pos)
+                    body.setPos(body.pos + event_pos - past_pos)
             if clicked and not body_clicked:
                 for body in bodies:
-                    body.setPos(body.pos + tupleToVector2(event.pos) - past_pos)
-            past_pos = tupleToVector2(event.pos)
+                    body.setPos(body.pos + event_pos - past_pos)
+            past_pos = event_pos
         elif event.type == KEYDOWN:
             if event.key == K_LEFT:
                 fps = 25
@@ -278,6 +314,16 @@ while game_on:
                 paused = not paused
             elif event.key == K_g:
                 gravity_on = not gravity_on
+            elif event.key == K_m:
+                merge_on = not merge_on
+            elif event.key == K_d:
+                plot_diagnostics = not plot_diagnostics
+                pygame.display.set_caption("Simulation (Diagnostics {}, Render {})".format("On" if plot_diagnostics else "Off", 
+                                                                                           "On" if render else "Off"))
+            elif event.key == K_r:
+                render = not render
+                pygame.display.set_caption("Simulation (Diagnostics {}, Render {})".format("On" if plot_diagnostics else "Off", 
+                                                                                           "On" if render else "Off"))
             elif event.key == K_1:
                 draw_tree = False
                 draw_gravity = False
@@ -310,8 +356,18 @@ while game_on:
         start = time.perf_counter()
         if gravity_on:
             for body in bodies:
-                handleGravity(body, root, THETA)
+                handleGravity(body, root)
         gravity_times.append(time.perf_counter() - start)
+
+        start = time.perf_counter()
+        if merge_on:
+            bodies = sorted(bodies, key=lambda x: -x.radius)
+            idx = 0
+            while idx < len(bodies):
+                handleMerges(bodies[idx], root)
+                idx += 1
+        merge_times.append(time.perf_counter() - start)
+        particle_nums.append(len(bodies))
             
         for body in bodies:
             if body.clicked:
@@ -320,12 +376,13 @@ while game_on:
                 body.update()
         click_frame = False
         ticks += 1
-
-    # root = constructQuadTree(bodies)
+    else:
+        root = constructQuadTree(bodies)
 
     # Drawing the Schwarzschild Radius of the star
     # pygame.draw.circle(window, (50, 50, 50, 0.5), star.pos, 2 * G * star.mass / C ** 2, width=5)
 
+    # Draw Modes
     if draw_tree: 
         root.draw(window)
     if draw_gravity:
@@ -339,16 +396,77 @@ while game_on:
         if not body_clicked:
             pos = pygame.mouse.get_pos()
             root.drawMerge(window, Body(pos[0], pos[1], 0, 25))
-            pygame.draw.circle(window, (100, 100, 100, 0.5), pos, 25)
-    bodies.draw(window)
+            pygame.draw.circle(window, (100, 100, 100, 255), pos, 25)
+    
+    # Drawing the Bodies
+    for body in bodies:
+        body.draw(window)
     pygame.display.update()
-    clock.tick(fps)  
+    scene.append(window.copy())
+    clock.tick(fps)
 
-    # For comparison to naive algorithm
-    """
-    if ticks > 100:
-        game_on = False
-    """
+    if ticks == 10000:
+        sim_on = False  
 
 print("Average Construction Time: {}".format(sum(construct_times) / len(construct_times)))
 print("Average Gravity Time: {}".format(sum(gravity_times) / len(gravity_times)))
+print("Average Merge Time: {}".format(sum(merge_times) / len(merge_times)))
+
+if render:
+    idx = 0
+    left, right = False, False
+    sim_on = True
+    pygame.display.set_caption("Render")
+    while sim_on:
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                sim_on = False
+            elif event.type == KEYDOWN:
+                if event.key == K_LEFT:
+                    right = False
+                    left = True
+                elif event.key == K_RIGHT:
+                    left = False
+                    right = True
+            elif event.type == KEYUP:
+                if event.key == K_LEFT:
+                    left = False
+                elif event.key == K_RIGHT:
+                    right = False
+        window.blit(scene[idx], (0, 0))
+        pygame.display.update()
+        if left:
+            idx = max(0, idx - 1)
+        elif right:
+            idx = min(len(scene) - 1, idx + 1)
+        clock.tick(fps)
+
+pygame.quit()
+
+if plot_diagnostics:
+    particle_nums = np.array(particle_nums)
+    construct_times = np.array(construct_times)
+    merge_times = np.array(merge_times)
+    gravity_times = np.array(gravity_times)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1)
+    fig.set(figwidth=10, figheight=6)
+    x = np.arange(0, ticks, 1)
+    ax1.plot(x, construct_times * 1000, color="green", label="Construction Time")
+    ax1.plot(x, gravity_times * 1000, color="blue", label="Gravity Time")
+    ax1.plot(x, merge_times * 1000, color="red", label="Merge Time")
+    ax1.set_yscale("log")
+    ax1.set_xlabel("Ticks")
+    ax1.set_ylabel("Time (MS)")
+    ax1.legend()
+
+    ax2.plot(particle_nums, construct_times * 1000, color="green", label="Construction Time")
+    ax2.plot(particle_nums, gravity_times * 1000, color="blue", label="Gravity Time")
+    ax2.plot(particle_nums, merge_times * 1000, color="red", label="Merge Time")
+    ax2.set_xlabel("Number of Bodies")
+    ax2.set_ylabel("Time (MS)")
+    ax2.legend()
+
+    fig.suptitle("Simulation Diagnostics ({} Bodies)".format(num_bodies))
+    fig.tight_layout()
+    plt.show()
