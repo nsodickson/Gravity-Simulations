@@ -16,7 +16,7 @@ from utils import *
 G = 1
 C = 1e20
 THETA = 0.9
-DT = 1
+DT = 0.1
 
 # Initializing pygame
 pygame.init()
@@ -113,7 +113,7 @@ planets = []
 for i in range(4999):
     r = math.sqrt(random.random()) * (width / 2 - star.radius) + star.radius
     theta = random.random() * 2 * math.pi
-    planet = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 0.1, 0.5)
+    planet = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 0.5, 0.5)
     vel = (planet.pos - star.pos).rotate(90)
     vel.scale_to_length(math.sqrt(G * star.mass / dist(planet.pos, star.pos)) * (random.random() * 0.8 + 0.6))
     # vel.scale_to_length(random.random() * math.sqrt(G * star.mass / dist(planet.pos, star.pos)))
@@ -282,7 +282,8 @@ while sim_on:
     for body in bodies:
         body.draw(window)
     pygame.display.update()
-    scene.append(window.copy())
+    if not paused:
+        scene.append(window.copy())
     clock.tick(fps)
 
 print("Average Construction Time: {}".format(sum(construct_times) / len(construct_times)))
@@ -294,13 +295,16 @@ if render:
     idx = 0
     left, right = False, False
     sim_on = True
+    paused = True
     pygame.display.set_caption("Render")
     while sim_on:
         for event in pygame.event.get():
             if event.type == QUIT:
                 sim_on = False
             elif event.type == KEYDOWN:
-                if event.key == K_LEFT:
+                if event.key == K_SPACE:
+                    paused = not paused
+                elif event.key == K_LEFT:
                     right = False
                     left = True
                 elif event.key == K_RIGHT:
@@ -321,9 +325,12 @@ if render:
                     right = False
         window.blit(scene[idx], (0, 0))
         pygame.display.update()
-        if left:
-            idx = max(0, idx - 1)
-        elif right:
+        if paused:
+            if left:
+                idx = max(0, idx - 1)
+            elif right:
+                idx = min(len(scene) - 1, idx + 1)
+        else:
             idx = min(len(scene) - 1, idx + 1)
         clock.tick(fps)
 
