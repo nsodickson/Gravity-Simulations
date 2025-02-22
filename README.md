@@ -1,1 +1,1 @@
-Gravity simulations using the Barnes-Hut algorithm to compute gravitational interactions in O(nlogn) time.
+Gravity simulation using the Barnes-Hut algorithm to compute gravitational interactions in O(nlogn) time and Verlet Integration to numerial solve Newton's equations. The main simulation is ran in barnes-hut.py. This is a passion project that I've been working on over the past year.

@@ -21,14 +21,13 @@ font = pygame.font.Font(None, 25)
 
 
 # Calculating gravitational forces
-def calculateGravity(body, mass, pos):
-    radius = dist(body.pos, pos)
-    if radius > body.radius:
-        mag = G * mass / radius ** 2
-        acc = pos - body.pos
-        acc.scale_to_length(mag)
+def calculateGravity(body, mass, pos, softening=0.0, cutoff=2):
+    if dist(pos, body.pos) > cutoff * body.radius:
+        r = dist(body.pos, pos, softening=softening)
+        mag = G * mass / r ** 2
+        acc = mag * (pos - body.pos) / (pos - body.pos).magnitude()
         body.setAcc(body.acc + acc)
-        body.setPE(body.pe + -G * body.mass * mass / radius)
+        body.setPE(body.pe + -1 * G * body.mass * mass / r)
 
 
 # Constructing a quad tree to fit the simulation
@@ -106,20 +105,19 @@ def handleMerge(bodies, *args, **kwargs):
     return end - start
 
 
-def run(bodies, init_fps=100, merge=False):
-    global THETA, DT
-
+# Running simulation
+def run(bodies, dt=DT, theta=THETA, init_fps=100, merge=False):
     # Timing and events
-    ticks = 0
     fps = init_fps
     past_pos = pygame.Vector2(0, 0)
 
-    # Boolean flags
+    # Boolean flags and click modes
     paused = False
     clicked = False
     click_frame = False
     gravity_on = True
     merge_on = merge
+    clicked_body_idx = None
 
     # Draw modes
     draw_tree = False
@@ -148,28 +146,27 @@ def run(bodies, init_fps=100, merge=False):
         # Event handling
         for event in pygame.event.get():
             if event.type == QUIT:
-                sim_on = False
+                quit()
             elif event.type == MOUSEBUTTONDOWN:
                 event_pos = tupleToVector2(event.pos)
                 clicked = True
-                for body in bodies:
+                for i, body in enumerate(bodies):
                     if dist(body.pos, event_pos) < body.radius:
-                        body.clicked = True
+                        clicked_body_idx = i
+                        body.stop()
                         break
             elif event.type == MOUSEBUTTONUP:
                 clicked = False
-                for body in bodies:
-                    body.clicked = False
+                clicked_body_idx = None
             elif event.type == MOUSEMOTION:
                 event_pos = tupleToVector2(event.pos)
-                body_clicked = False
-                for body in bodies:
-                    if body.clicked:
-                        body_clicked = True
-                        body.setPos(body.pos + event_pos - past_pos)
-                if clicked and not body_clicked:
-                    for body in bodies:
-                        body.setPos(body.pos + event_pos - past_pos)
+                if clicked:
+                    if clicked_body_idx is None:
+                        for body in bodies:
+                            body.setPos(body.pos + event_pos - past_pos)
+                    else:
+                        clicked_body = bodies[clicked_body_idx]
+                        clicked_body.setPos(clicked_body.pos + event_pos - past_pos)
                 past_pos = event_pos
             elif event.type == KEYDOWN:
                 if event.key == K_LEFT:
@@ -177,9 +174,9 @@ def run(bodies, init_fps=100, merge=False):
                 elif event.key == K_RIGHT:
                     fps = init_fps * 5
                 elif event.key == K_UP:
-                    THETA = min(2.0, THETA + 0.05)
+                    theta = min(2.0, theta + 0.05)
                 elif event.key == K_DOWN:
-                    THETA = max(0, THETA - 0.05)
+                    theta = max(0, theta - 0.05)
                 elif event.key == K_RETURN:
                     if paused:
                         click_frame = True
@@ -221,7 +218,7 @@ def run(bodies, init_fps=100, merge=False):
             construct_times = np.append(construct_times, con_time)
 
             if gravity_on:
-                grav_time = handleGravity(bodies, root, THETA)
+                grav_time = handleGravity(bodies, root, theta)
                 gravity_times = np.append(gravity_times, grav_time)
             else:
                 gravity_times = np.append(gravity_times, np.nan)
@@ -236,63 +233,68 @@ def run(bodies, init_fps=100, merge=False):
 
             ke = 0
             pe = 0
-            p = 0  
-            for body in bodies:
-                if body.clicked:
-                    body.stop()
-                else:
-                    body.update(DT)
-                
-                # Updating energy
-                ke += body.getKE()
-                pe += body.getPE() / 2
-                p += body.getP()
-
-                # Drawing acceleration and velocity
+            p = pygame.Vector2(0, 0)
+            for i, body in enumerate(bodies):
+                # Acceleration Dependant
                 if draw_acc:
                     body.draw_acc(window, scale=10, max_length=100)
+                pe += body.getPE() / 2
+
+                if i == clicked_body_idx:
+                    body.stop()
+                else:
+                    body.update(dt)
+                
+                # Velocity Dependant
                 if draw_vel:
                     body.draw_vel(window, scale=1, max_length=100)
-                
-                body.setAcc(pygame.Vector2(0, 0))
-                body.setPE(0)
-
+                ke += body.getKE()
+                p += body.getP()
+    
             click_frame = False
-
-            ticks += 1
         else:
-            root = constructQuadTree(bodies)
+            root, con_time = constructQuadTree(bodies)
+            construct_times = np.append(construct_times, con_time)
 
+            # Still calculates gravity to display accelerations
             if gravity_on:
-                grav_time = handleGravity(bodies, root, THETA)
+                grav_time = handleGravity(bodies, root, theta)
                 gravity_times = np.append(gravity_times, grav_time)
             else:
                 gravity_times = np.append(gravity_times, np.nan)
+            
+            pe = 0
+            for body in bodies:
+                # Acceleration Dependant
+                if draw_acc:
+                    body.draw_acc(window, scale=10, max_length=100)
+                pe += body.getPE() / 2
+                
+                body.setAcc(pygame.Vector2(0, 0))
+                body.setPE(0)
 
         # Drawing the bodies
         for body in bodies:
             body.draw(window)
 
-        # Draw modes (2)
+        # Draw modes
         if draw_tree: 
             root.draw(window)
         if draw_gravity:
-            root.drawGravity(window, tupleToVector2(pygame.mouse.get_pos()), THETA)
+            root.drawGravity(window, tupleToVector2(pygame.mouse.get_pos()), theta)
         if draw_merge:
-            body_clicked = False
-            for body in bodies:
-                if body.clicked:
-                    body_clicked = True
-                    root.drawMerge(window, body)
-            if not body_clicked:
+            if clicked_body_idx is None:
                 pos = pygame.mouse.get_pos()
                 root.drawMerge(window, Body(pos[0], pos[1], 0, 25))
                 pygame.draw.circle(window, (100, 100, 100, 255), pos, 25)
+            else:
+                clicked_body = bodies[clicked_body_idx]
+                root.drawMerge(window, clicked_body)
         if draw_energy:
             ke_img = font.render("Kinetic Energy: {:.2f}".format(ke), True, RED) 
             pe_img = font.render("Potential Energy: {:.2f}".format(pe), True, RED) 
             tme_img = font.render("Total Energy: {:.2f}".format(ke + pe), True, RED) 
-            p_img = font.render("Momentum: {:.2f}".format(p), True, RED) 
+            p_img = font.render("Momentum: {:.2f}".format(p.magnitude()), True, RED) 
             window.blit(ke_img, (5, 5))
             window.blit(pe_img, (5, 25))
             window.blit(tme_img, (5, 45))
@@ -301,16 +303,15 @@ def run(bodies, init_fps=100, merge=False):
         pygame.display.update()
         clock.tick(fps)
 
-    print("Average Construction Time: {}".format(np.nanmean(construct_times) if ~np.isnan(construct_times).any() else np.nan))
-    print("Average Gravity Time: {}".format(np.nanmean(gravity_times) if ~np.isnan(gravity_times).any() else np.nan))
-    print("Average Merge Time: {}".format(np.nanmean(merge_times) if ~np.isnan(merge_times).any() else np.nan))
+    print("Average Construction Time: {}".format(np.nanmean(construct_times) if (~np.isnan(construct_times)).any() else np.nan))
+    print("Average Gravity Time: {}".format(np.nanmean(gravity_times) if (~np.isnan(gravity_times)).any() else np.nan))
+    print("Average Merge Time: {}".format(np.nanmean(merge_times) if (~np.isnan(merge_times)).any() else np.nan))
 
     pygame.quit()
 
 
-def render(bodies, frames=1000, init_fps=100, merge=False):
-    global THETA, DT
-
+# Render a simulation
+def render(bodies, dt=DT, theta=THETA, frames=1000, init_fps=100, merge=False):
     # Render data
     scene = []
     screen = window.copy()
@@ -334,7 +335,7 @@ def render(bodies, frames=1000, init_fps=100, merge=False):
         # Event handling
         for event in pygame.event.get():
             if event.type == QUIT:
-                render_on = False
+                quit()
 
         # Updating the frame
         root, con_time = constructQuadTree(bodies)
@@ -351,11 +352,9 @@ def render(bodies, frames=1000, init_fps=100, merge=False):
         body_nums = np.append(body_nums, len(bodies))
 
         for body in bodies:
-            body.update(DT, reset=True)
-        
-        # Drawing the bodies
-        for body in bodies:
+            body.update(dt)
             body.draw(screen)
+            
         scene.append(screen.copy())
 
         # Drawing the rendering loading bar
@@ -365,9 +364,9 @@ def render(bodies, frames=1000, init_fps=100, merge=False):
 
         ticks += 1
     
-    print("Average Construction Time: {}".format(np.nanmean(construct_times) if ~np.isnan(construct_times).any() else np.nan))
-    print("Average Gravity Time: {}".format(np.nanmean(gravity_times) if ~np.isnan(gravity_times).any() else np.nan))
-    print("Average Merge Time: {}".format(np.nanmean(merge_times) if ~np.isnan(merge_times).any() else np.nan))
+    print("Average Construction Time: {}".format(np.nanmean(construct_times) if (~np.isnan(construct_times)).any() else np.nan))
+    print("Average Gravity Time: {}".format(np.nanmean(gravity_times) if (~np.isnan(gravity_times)).any() else np.nan))
+    print("Average Merge Time: {}".format(np.nanmean(merge_times) if (~np.isnan(merge_times)).any() else np.nan))
 
     # Timing and events
     ticks = 0
@@ -388,7 +387,7 @@ def render(bodies, frames=1000, init_fps=100, merge=False):
 
         for event in pygame.event.get():
             if event.type == QUIT:
-                sim_on = False
+                quit()
             elif event.type == MOUSEBUTTONDOWN:
                 clicked = True
             elif event.type == MOUSEBUTTONUP:
@@ -437,10 +436,136 @@ def render(bodies, frames=1000, init_fps=100, merge=False):
     pygame.quit()
 
 
+# Trace future paths
+def run_trails(bodies, dt=DT, theta=THETA, trail_length=100, vel_scale=100, vel_click_size=5):
+    # Timing and events
+    past_pos = pygame.Vector2(0, 0)
+
+    # Boolean flags and click modes
+    paused = False
+    clicked = False
+    gravity_on = True
+    trails_on = True
+    draw_vel = False
+    clicked_body_idx = None
+    clicked_vel_idx = None
+
+    # Diagnostics data
+    construct_times = np.empty(0)
+    gravity_times = np.empty(0)
+
+    # Trails
+    colors = [body.color for body in bodies]
+    trails = [[body.pos.copy()] for body in bodies]
+
+    # Game loop
+    sim_on = True
+    pygame.display.set_caption("Trace Simulation (Gravity: {})".format("On" if gravity_on else "Off"))
+    while sim_on:
+        window.fill((0, 0, 0))
+
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                quit()
+            elif event.type == MOUSEBUTTONDOWN:
+                event_pos = tupleToVector2(event.pos)
+                clicked = True
+                if draw_vel:
+                    for i, body in enumerate(bodies):
+                        if dist(body.pos + body.vel * vel_scale, event_pos) < vel_click_size:
+                            clicked_vel_idx = i
+                            break
+                if clicked_vel_idx is None:
+                    for i, body in enumerate(bodies):
+                        if dist(body.pos, event_pos) < body.radius:
+                            clicked_body_idx = i
+                            break
+            elif event.type == MOUSEBUTTONUP:
+                clicked = False
+                clicked_vel_idx = None
+                clicked_body_idx = None
+            elif event.type == MOUSEMOTION:
+                event_pos = tupleToVector2(event.pos)
+                if clicked:
+                    if clicked_vel_idx is not None:
+                        clicked_body = bodies[clicked_vel_idx]
+                        clicked_body.setVel(clicked_body.vel + (event_pos - past_pos) / vel_scale)
+                    elif clicked_body_idx is not None:
+                        clicked_body = bodies[clicked_body_idx]
+                        clicked_body.setPos(clicked_body.pos + event_pos - past_pos)
+                    else:
+                        for body in bodies:
+                            body.setPos(body.pos + event_pos - past_pos)
+                past_pos = event_pos
+            elif event.type == KEYDOWN:
+                if event.key == K_UP:
+                    theta = min(2.0, theta + 0.05)
+                elif event.key == K_DOWN:
+                    theta = max(0, theta - 0.05)
+                elif event.key == K_SPACE:
+                    paused = not paused
+                elif event.key == K_g:
+                    gravity_on = not gravity_on
+                    pygame.display.set_caption("Trace Simulation (Gravity: {})".format("On" if gravity_on else "Off"))
+                elif event.key == K_t:
+                    trails_on = not trails_on
+                elif event.key == K_v:
+                    if draw_vel:  # If adjusting a vel, stop that adjustment
+                        clicked_vel_idx = None
+                    draw_vel = not draw_vel
+
+        if trails_on:
+            # Copying bodies (Find new way to do this)
+            _bodies = []
+            for body in bodies:
+                _bodies.append(Body(x=body.pos.x, 
+                                    y=body.pos.y, 
+                                    mass=body.mass, 
+                                    radius=body.radius, 
+                                    init_vel_x=body.vel.x, 
+                                    init_vel_y=body.vel.y))
+            trails = [[body.pos.copy()] for body in bodies]
+
+            # Generating Trails
+            for i in range(trail_length):
+                for event in pygame.event.get(pump=False):
+                    if event.type == QUIT:
+                        quit()
+
+                # Updating the frame
+                root, con_time = constructQuadTree(_bodies)
+                construct_times = np.append(construct_times, con_time)
+
+                if gravity_on:
+                    grav_time = handleGravity(_bodies, root, theta)
+                    gravity_times = np.append(gravity_times, grav_time)
+                else:
+                    gravity_times = np.append(gravity_times, np.nan)
+
+                for i, _body in enumerate(_bodies):
+                    _body.update(dt)
+                    trails[i].append(_body.pos.copy())
+
+            # Drawing trails
+            for trail, color in zip(trails, colors):
+                for i in range(trail_length):
+                    pygame.draw.line(window, color, trail[i], trail[i + 1])
+
+        # Drawing bodies
+        for body in bodies:
+            body.draw(window)
+            if draw_vel:
+                body.draw_vel(window, scale=vel_scale, color=WHITE)
+                pygame.draw.circle(window, WHITE, (body.pos + body.vel * vel_scale), vel_click_size)
+
+        pygame.display.update()
+
+
 # Setting up initial state ------------------------------------------------------------------------
 bodies = []
 
-# """
+"""
 stars = [Body(400, 400, 100000, 50)]
 star = stars[0]
 planets = []
@@ -461,7 +586,7 @@ for star in stars:
     bodies.append(star)
 for planet in planets:
     bodies.append(planet)
-# """
+"""
 
 """
 for i in range(3):
@@ -469,7 +594,20 @@ for i in range(3):
     body.setVel(pygame.Vector2(random.randint(-5, 5) / 10, random.randint(-5, 5) / 10))
     bodies.append(body)
 """
+
+# Trails Setup
+# """
+body = Body(random.randint(50, 750), random.randint(50, 750), 100, 12, color=RED)
+bodies.append(body)
+
+body = Body(random.randint(50, 750), random.randint(50, 750), 100, 12, color=GREEN)
+bodies.append(body)
+
+body = Body(random.randint(50, 750), random.randint(50, 750), 100, 12, color=BLUE)
+bodies.append(body)
+# """
 # -------------------------------------------------------------------------------------------------
 
-run(bodies, init_fps=100 / DT)
-# render(bodies, frames=10000, init_fps = 100 / DT, merge=False)
+# run(bodies, init_fps=100 / DT, merge=False)
+# render(bodies, frames=10000, init_fps = 100 / DT, merge=True)
+run_trails(bodies, trail_length=1000, dt=0.5, vel_scale=100, vel_click_size=3)
