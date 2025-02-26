@@ -1,15 +1,16 @@
 import pygame
 from pygame.locals import *
+from pygame.math import Vector2
 from utils import *
 
 class Body(pygame.sprite.Sprite):
     def __init__(self, x, y, mass, radius, visual_radius=None, init_vel_x=0, init_vel_y=0, color=RED):
         super(Body, self).__init__()
         
-        self.pos = pygame.Vector2(x, y)
-        self.vel = pygame.Vector2(init_vel_x, init_vel_y)
-        self.prev_acc = pygame.Vector2(0, 0)
-        self.acc = pygame.Vector2(0, 0)
+        self.pos = Vector2(x, y)
+        self.vel = Vector2(init_vel_x, init_vel_y)
+        self.prev_acc = Vector2(0, 0)
+        self.acc = Vector2(0, 0)
 
         self.ke = 0
         self.pe = 0
@@ -82,15 +83,15 @@ class Body(pygame.sprite.Sprite):
 
         # Treat update as a progression of the simulation and automatically reset acceleration
         if reset:
-            self.setAcc(pygame.Vector2(0, 0))
+            self.setAcc(Vector2(0, 0))
             self.setPE(0)
 
         self.rect.update(self.pos.x - self.radius, self.pos.y - self.radius, self.radius * 2, self.radius * 2)
     
     def stop(self):
-        self.setVel(pygame.Vector2(0, 0))
-        self.setPrevAcc(pygame.Vector2(0, 0))
-        self.setAcc(pygame.Vector2(0, 0))
+        self.setVel(Vector2(0, 0))
+        self.setPrevAcc(Vector2(0, 0))
+        self.setAcc(Vector2(0, 0))
         self.setPE(0)
     
     def draw(self, window):
@@ -101,9 +102,10 @@ class Body(pygame.sprite.Sprite):
         if visual_acc.magnitude() > max_length:
             visual_acc.scale_to_length(max_length)
         pygame.draw.line(window, color, self.pos, self.pos + visual_acc)
-    
+
     def draw_vel(self, window, scale=1, max_length=500, color=GREEN):
         visual_vel = self.vel * scale
         if visual_vel.magnitude() > max_length:
             visual_vel.scale_to_length(max_length)
         pygame.draw.line(window, color, self.pos, self.pos + visual_vel)
+

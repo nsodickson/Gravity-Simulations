@@ -1,5 +1,6 @@
 import pygame
 from pygame.locals import *
+from pygame.math import Vector2
 from utils import *
 
 class Node:
@@ -11,8 +12,8 @@ class Node:
         self.rect = pygame.Rect(x, y, s, s)
 
         self.mass = 0
-        self.weighted_pos = pygame.Vector2(0, 0)
-        self.center = pygame.Vector2(x + self.half_s, y + self.half_s)
+        self.weighted_pos = Vector2(0, 0)
+        self.center = Vector2(x + self.half_s, y + self.half_s)
 
         self.internal = False
         self.depth = depth
@@ -55,25 +56,25 @@ class Node:
                 return 0
     
     def draw(self, window):
-        pygame.draw.rect(window, (0, 0, 255), self.rect, 1)
+        pygame.draw.rect(window, BLUE, self.rect, 1)
         for child in self.children:
             child.draw(window)
     
     def drawGravity(self, window, pos, theta):
         if not self.internal:
-            pygame.draw.rect(window, (0, 0, 255), self.rect, 1)
+            pygame.draw.rect(window, BLUE, self.rect, 1)
         elif self.s / dist(self.center, pos) > theta:
             for child in self.children:
                 child.drawGravity(window, pos, theta)
         else:
-            pygame.draw.rect(window, (0, 255, 0), self.rect, 1)
+            pygame.draw.rect(window, GREEN, self.rect, 1)
     
     def drawMerge(self, window, body):
         if body.rect.colliderect(self.rect):
             if not self.internal:
-                pygame.draw.rect(window, (0, 0, 255), self.rect, 1)
+                pygame.draw.rect(window, BLUE, self.rect, 1)
             else:
                 for child in self.children:
                     child.drawMerge(window, body)
         else:
-            pygame.draw.rect(window, (0, 255, 0), self.rect, 1)
+            pygame.draw.rect(window, GREEN, self.rect, 1)
