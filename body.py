@@ -65,6 +65,9 @@ class Body(pygame.sprite.Sprite):
     
     def setMass(self: Self, mass: float) -> None:
         self.mass = mass
+    
+    def setColor(self: Self, color: float) -> None:
+        self.color = color
 
     def getP(self: Self) -> Vector2:
         return self.mass * self.vel
@@ -117,4 +120,4 @@ class Body(pygame.sprite.Sprite):
         visual_vel = self.vel * scale
         if visual_vel.magnitude() > max_length:
             visual_vel.scale_to_length(max_length)
-        pygame.draw.line(window, color, self.pos, self.pos + visual_vel)
+        pygame.draw.line(window, self.color, self.pos, self.pos + visual_vel)

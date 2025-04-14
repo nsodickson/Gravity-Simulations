@@ -65,14 +65,16 @@ class Node:
         for child in self.children:
             child.draw(window)
     
-    def drawGravity(self: Self, window: pygame.Surface, pos: Vector2, theta: float) -> None:
+    def drawGravity(self: Self, window: pygame.Surface, pos: Vector2, theta: float, draw_cm: bool=True) -> None:
         if not self.internal:
             pygame.draw.rect(window, BLUE, self.rect, 1)
+            if draw_cm: pygame.draw.circle(window, (100, 100, 100, 100), self.center, 3)
         elif self.s / dist(self.center, pos) > theta:
             for child in self.children:
                 child.drawGravity(window, pos, theta)
         else:
             pygame.draw.rect(window, GREEN, self.rect, 1)
+            if draw_cm: pygame.draw.circle(window, (100, 100, 100, 100), self.center, 3)
     
     def drawMerge(self: Self, window: pygame.Surface, body: Body) -> None:
         if body.rect.colliderect(self.rect):

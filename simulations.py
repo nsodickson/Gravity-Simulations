@@ -45,16 +45,20 @@ def calculateGravity(body: Iterable[Body], mass: float, pos: Vector2, gravity_cu
 def calculateMerge(body: Body, test: Body, bodies: Iterable[Body], root: Node) -> None:
     radius = dist(body.pos, test.pos)
     if radius < body.radius + test.radius:
-        body.setVel((body.mass * body.vel + test.mass * test.vel) / (body.mass + test.mass))
-        body.setPos((body.mass * body.pos + test.mass * test.pos) / (body.mass + test.mass))
-        body.setMass(body.mass + test.mass)
+        total_mass = body.mass + test.mass
+        body.setVel((body.mass * body.vel + test.mass * test.vel) / total_mass)
+        body.setPos((body.mass * body.pos + test.mass * test.pos) / total_mass)
+        body.setColor(((body.color[0] * body.mass + test.color[0] * test.mass) // total_mass,
+                       (body.color[1] * body.mass + test.color[1] * test.mass) // total_mass,
+                       (body.color[2] * body.mass + test.color[2] * test.mass) // total_mass))
+        body.setMass(total_mass)
         body.setRadius(math.sqrt(body.radius ** 2 + test.radius ** 2))
         root.bodies.remove(test)
         bodies.remove(test)
 
 
 # Calculation collision effects
-def calculateCollision(body: Body, test: Body, elasticity: float=1, buffer: float=0.5) -> None:
+def calculateCollision(body: Body, test: Body, elasticity: float=1) -> None:
     r_mag = dist(body.pos, test.pos)
     radius_sum = body.radius + test.radius
     if r_mag < radius_sum:
@@ -64,8 +68,6 @@ def calculateCollision(body: Body, test: Body, elasticity: float=1, buffer: floa
         
         # Splitting the body's velocity and acceleration into r_hat and theta_hat components
         body_vel_r = r_hat * (r_hat * body.vel)
-        body_vel_r_pos = r_hat * max(0, r_hat * body.vel)
-        body_vel_r_neg = r_hat * min(0, r_hat * body.vel)
         body_acc_r = r_hat * (r_hat * body.vel)
         body_acc_r_pos = r_hat * max(0, r_hat * body.acc)
         body_acc_r_neg = r_hat * min(0, r_hat * body.acc)
@@ -74,8 +76,6 @@ def calculateCollision(body: Body, test: Body, elasticity: float=1, buffer: floa
 
         # Splitting the test body's velocity and acceleration into r_hat and theta_hat componenets
         test_vel_r = r_hat * (r_hat * test.vel)
-        test_vel_r_pos = r_hat * max(0, r_hat * test.vel)
-        test_vel_r_neg = r_hat * min(0, r_hat * test.vel)
         test_acc_r = r_hat * (r_hat * test.acc)
         test_acc_r_pos = r_hat * max(0, r_hat * test.acc)
         test_acc_r_neg = r_hat * min(0, r_hat * test.acc)
@@ -83,25 +83,48 @@ def calculateCollision(body: Body, test: Body, elasticity: float=1, buffer: floa
         test_acc_theta = theta_hat * (theta_hat * test.acc)
 
         # Calculating elastic collision velocity in the r_hat direction
-        total_mass = body.mass + test.mass
-        mass_dif = body.mass - test.mass
-        body_elastic_vel = (mass_dif * body_vel_r_neg + 2 * test.mass * test_vel_r_pos) / total_mass
-        test_elastic_vel = (-mass_dif * test_vel_r_pos + 2 * body.mass * body_vel_r_neg) / total_mass
+        collision_det = r_hat * (test_vel_r - body_vel_r)  # Collision determinant
+        if collision_det > 0:
+            total_mass = body.mass + test.mass
+            mass_dif = body.mass - test.mass
+            body_elastic_vel = (mass_dif * body_vel_r + 2 * test.mass * test_vel_r) / total_mass
+            test_elastic_vel = (-mass_dif * test_vel_r + 2 * body.mass * body_vel_r) / total_mass
 
-        # print(body.mass, body_vel_r_pos, body_vel_r_neg, body_acc_r_pos, body_acc_r_neg, body_elastic_vel)
-        # print(test.mass, test_vel_r_pos, test_vel_r_neg, test_acc_r_pos, test_acc_r_neg, test_elastic_vel)
+            body.setVel(body_vel_theta + body_elastic_vel)
+            body.setAcc(body_acc_theta + body_acc_r_pos + (test.mass / body.mass) * test_acc_r_pos)  # Newton's third law
+            test.setVel(test_vel_theta + test_elastic_vel)
+            test.setAcc(test_acc_theta + test_acc_r_neg + (body.mass / test.mass) * body_acc_r_neg)  # Newton's third law
 
-        # Calculating how much to nudge each body so they don't overlap
-        overlap = radius_sum - r_mag + buffer
-        body_push = (r_hat * overlap * test.mass) / total_mass
-        test_push = (-r_hat * overlap * body.mass) / total_mass
 
-        # body.setPos(body.pos + body_push)
-        body.setVel(body_vel_theta + body_vel_r_pos + elasticity * body_elastic_vel)
-        body.setAcc(body_acc_theta + body_acc_r_pos + (test.mass / body.mass) * test_acc_r_pos)  # Newton's third law
-        # test.setPos(test.pos + test_push)
-        test.setVel(test_vel_theta + test_vel_r_neg + elasticity * test_elastic_vel)
-        test.setAcc(test_acc_theta + test_acc_r_neg + (body.mass / test.mass) * body_acc_r_neg)  # Newton's third law
+def calculateWallCollision(body: Body, left=0, right=width, top=0, bottom=height, elasticity: float=1):
+    # Establishing r_hat and theta_hat directions (r_hat coming out of the wall)
+    r_hat = Vector2(0, 0)
+    if body.pos.x - body.radius < left:
+        r_hat += Vector2(1, 0)
+    if body.pos.x + body.radius > right:
+        r_hat += Vector2(-1, 0)
+    if body.pos.y - body.radius < top:
+        r_hat += Vector2(0, 1)
+    if body.pos.y + body.radius > bottom:
+        r_hat += Vector2(0, -1)
+    if r_hat.magnitude() < 1e-6:  # Fix later
+        return
+    r_hat /= r_hat.magnitude()
+    theta_hat = r_hat.rotate(90)
+
+    # Splitting the body's velocity and acceleration into r_hat and theta_hat components
+    body_vel_r = r_hat * (r_hat * body.vel)
+    body_acc_r = r_hat * (r_hat * body.vel)
+    body_acc_r_pos = r_hat * max(0, r_hat * body.acc)
+    body_acc_r_neg = r_hat * min(0, r_hat * body.acc)
+    body_vel_theta = theta_hat * (theta_hat * body.vel)
+    body_acc_theta = theta_hat * (theta_hat * body.acc)
+
+    # Calculating elastic collision velocity in the r_hat direction
+    collision_det = r_hat * -body_vel_r  # Keeping the same convention as above
+    if collision_det > 0:
+        body.setVel(body_vel_theta - body_vel_r)
+        body.setAcc(body_acc_theta + body_acc_r_pos)
 
 
 # Constructing a quad tree to fit the simulation
@@ -149,15 +172,15 @@ def _handleMerge(body: Body, bodies: Iterable[Body], root: Node, *args, **kwargs
 
 
 # Recursively searching quad tree to detect collisions
-def _handleCollision(body: Body, root: Node, *args, **kwargs) -> None:
+def _handleCollision(body: Body, root: Node, elasticity: float=1, *args, **kwargs) -> None:
     if body.rect.colliderect(root.rect):
         if not root.internal:
             for test in root.bodies:
                 if body is not test:
-                    calculateCollision(body, test, *args, **kwargs)
+                    calculateCollision(body, test, elasticity=elasticity, *args, **kwargs)
         else:
             for child in root.children:
-                _handleCollision(body, child, *args, **kwargs)
+                _handleCollision(body, child, elasticity=elasticity, *args, **kwargs)
 
 
 def constructQuadTree(bodies: Iterable[Body]) -> tuple[Node, float]:
@@ -186,12 +209,25 @@ def handleMerge(bodies: Iterable[Body], root: Node, *args, **kwargs) -> float:
     return end - start
 
 
-def handleCollision(bodies: Iterable[Body], root: Node, *args, **kwargs) -> float:
+def handleCollision(bodies: Iterable[Body], root: Node, wall_collision: bool=False, elasticity: float=1, *args, **kwargs) -> float:
     start = time.perf_counter()
     for body in bodies:
-        _handleCollision(body, root, *args, **kwargs)
+        _handleCollision(body, root, elasticity=elasticity, *args, **kwargs)
+        if wall_collision:
+            calculateWallCollision(body, elasticity=elasticity)
     end = time.perf_counter()
     return end - start
+
+
+def searchBody(root: Node, pos: Vector2) -> Body:
+    if root.internal:
+        child = root.selectChild(pos)
+        return searchBody(root.children[child], pos)
+    else:
+        for body in root.bodies:
+            if dist(body.pos, pos) < body.radius:
+                return body
+        return None
 
 
 # Running simulation
@@ -199,24 +235,27 @@ def run(bodies: Iterable[Body],
         dt: float=DT, theta: 
         float=THETA, 
         init_fps: int=100, 
+        gravity: bool=False,
         merge: bool=False, 
-        collision: bool=False, 
+        collision: bool=False,
+        wall_collision: bool=False, 
         start_paused: bool=False, 
         vel_scale: float=1, 
         acc_scale: float=1, 
         elasticity: float=1,
-        init_unpaused_frames: int=10) -> None:
+        init_unpaused_frames: int=1) -> None:
     # Timing and events
     fps = init_fps
     past_pos = tupleToVector2(pygame.mouse.get_pos())
 
     # Boolean flags and click modes
     paused = start_paused
-    unpaused_frames = init_unpaused_frames
+    unpaused_frames = 0 if paused else init_unpaused_frames
     clicked = False
-    gravity_on = True
+    gravity_on = gravity
     merge_on = merge
     collision_on = collision
+    wall_collision_on = wall_collision
     clicked_body_idx = None
 
     # Draw modes
@@ -226,6 +265,7 @@ def run(bodies: Iterable[Body],
     draw_acc = False
     draw_vel = False
     draw_energy = True
+    draw_body_stats = True
 
     # Diagnostics data
     body_nums = np.empty(0)
@@ -318,6 +358,8 @@ def run(bodies: Iterable[Body],
                     draw_vel = not draw_vel
                 elif event.key == K_6:  # Energy draw mode
                     draw_energy = not draw_energy
+                elif event.key == K_7:  # Body stats draw mode
+                    draw_body_stats = not draw_body_stats
                 elif event.key == K_ESCAPE:  # Leave simulation
                     return
             elif event.type == KEYUP:
@@ -330,7 +372,7 @@ def run(bodies: Iterable[Body],
             construct_times = np.append(construct_times, con_time)
 
             if gravity_on:
-                grav_time = handleGravity(bodies, root, theta)
+                grav_time = handleGravity(bodies, root, theta, gravity_cutoff=1e-6 if collision_on else 2)
                 gravity_times = np.append(gravity_times, grav_time)
             else:
                 gravity_times = np.append(gravity_times, np.nan)
@@ -342,7 +384,7 @@ def run(bodies: Iterable[Body],
                 merge_times = np.append(merge_times, np.nan)
             
             if collision_on:  # (EXPERIMENTAL)
-                col_time = handleCollision(bodies, root, elasticity=elasticity)
+                col_time = handleCollision(bodies, root, wall_collision=wall_collision_on, elasticity=elasticity)
                 collision_times = np.append(collision_times, col_time)
             else:
                 collision_times = np.append(collision_times, np.nan)
@@ -399,15 +441,15 @@ def run(bodies: Iterable[Body],
             body.draw(window)
 
         # Draw modes
+        mouse_pos = tupleToVector2(pygame.mouse.get_pos())
         if draw_tree: 
             root.draw(window)
         if draw_gravity:
-            root.drawGravity(window, tupleToVector2(pygame.mouse.get_pos()), theta)
+            root.drawGravity(window, mouse_pos, theta)
         if draw_merge:
             if clicked_body_idx is None:
-                pos = pygame.mouse.get_pos()
-                root.drawMerge(window, Body(pos[0], pos[1], 0, 25))
-                pygame.draw.circle(window, (100, 100, 100, 255), pos, 25)
+                root.drawMerge(window, Body(mouse_pos.x, mouse_pos.y, 0, 25))
+                pygame.draw.circle(window, (100, 100, 100, 255), mouse_pos, 25)
             else:
                 clicked_body = bodies[clicked_body_idx]
                 root.drawMerge(window, clicked_body)
@@ -420,6 +462,40 @@ def run(bodies: Iterable[Body],
             window.blit(pe_img, (5, 25))
             window.blit(tme_img, (5, 45))
             window.blit(p_img, (5, 65))
+        if draw_body_stats:
+            stats_body = None
+            if clicked_body_idx is not None:
+                stats_body = bodies[clicked_body_idx]
+            else:
+                for body in bodies:
+                    if dist(body.pos, mouse_pos) < body.radius:
+                        stats_body = body
+                        break
+            if stats_body is not None:
+                body_mr_string = "Mass: {:.2f}, Radius: {:.2f}".format(stats_body.mass, stats_body.radius)
+                body_mr_img = font.render(body_mr_string, True, GREEN)
+                body_pos_string = "Pos: ({:.2f}, {:.2f})".format(stats_body.pos.x, stats_body.pos.y)
+                body_pos_img = font.render(body_pos_string, True, GREEN)
+                body_vel_string = "Vel: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.vel.x, stats_body.vel.y, stats_body.vel.magnitude())
+                body_vel_img = font.render(body_vel_string, True, GREEN)
+                body_acc_string = "Acc: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.acc.x, stats_body.acc.y, stats_body.acc.magnitude())
+                body_acc_img = font.render(body_acc_string, True, GREEN)
+                body_p_string = "P: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.getP().x, stats_body.getP().y, stats_body.getP().magnitude())
+                body_p_img = font.render(body_p_string, True, GREEN) 
+                body_ke_string = "KE: {:.2f}".format(stats_body.getKE())
+                body_ke_img = font.render(body_ke_string, True, GREEN)
+                max_width = max([font.size(body_mr_string)[0],
+                                 font.size(body_pos_string)[0],
+                                 font.size(body_vel_string)[0],
+                                 font.size(body_acc_string)[0],
+                                 font.size(body_p_string)[0],
+                                 font.size(body_ke_string)[0]])
+                window.blit(body_mr_img, (width - max_width - 5, height - 125))
+                window.blit(body_pos_img, (width - max_width - 5, height - 105))
+                window.blit(body_vel_img, (width - max_width - 5, height - 85))
+                window.blit(body_acc_img, (width - max_width - 5, height - 65))
+                window.blit(body_p_img, (width - max_width - 5, height - 45))
+                window.blit(body_ke_img, (width - max_width - 5, height - 25))
 
         pygame.display.update()
         clock.tick(fps)
@@ -600,7 +676,8 @@ def run_trails(bodies: Iterable[Body],
                theta: float=THETA, 
                trail_length: int=100, 
                vel_scale: float=100, 
-               vel_click_size: float=5, 
+               vel_click_size: float=5,
+               elasticity: float=1.0,
                *args, 
                **kwargs) -> None:
     # Timing and events
@@ -610,11 +687,15 @@ def run_trails(bodies: Iterable[Body],
     paused = False
     clicked = False
     gravity_on = True
+    collision_on = False
+    clicked_body_idx = None
+    clicked_vel_idx = None
+
+    # Draw Modes
     trails_on = True
     draw_vel = False
     draw_energy = True
-    clicked_body_idx = None
-    clicked_vel_idx = None
+    draw_body_stats = False
 
     # Trails
     colors = [body.color for body in bodies]
@@ -622,8 +703,9 @@ def run_trails(bodies: Iterable[Body],
     # Game loop
     root, con_time = constructQuadTree(bodies)
     sim_on = True
-    pygame.display.set_caption("Trail Simulation (Gravity: {}, Trail Length: {})".format("On" if gravity_on else "Off",
-                                                                                         trail_length))
+    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
     while sim_on:
         window.fill((0, 0, 0))
 
@@ -668,26 +750,37 @@ def run_trails(bodies: Iterable[Body],
                     theta = max(0, theta - 0.05)
                 elif event.key == K_LEFT:  # Decrease trail length
                     trail_length = max(0, trail_length - 100)
-                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Trail Length: {})".format("On" if gravity_on else "Off",
-                                                                                                         trail_length))
+                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
                 elif event.key == K_RIGHT:  # Increase trail length
                     trail_length += 100
-                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Trail Length: {})".format("On" if gravity_on else "Off",
-                                                                                                         trail_length))
+                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
                 elif event.key == K_SPACE:  # Pause simulation
                     paused = not paused
                 elif event.key == K_e:  # Energy draw mode
                     draw_energy = not draw_energy
                 elif event.key == K_r:  # Run simulation
-                    run(bodies, dt=dt, *args, **kwargs)
-                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Trail Length: {})".format("On" if gravity_on else "Off",
-                                                                                                         trail_length))
+                    run(bodies, dt=dt, collision=collision_on, *args, **kwargs)
+                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
                 elif event.key == K_t:  # Trail draw mode
                     trails_on = not trails_on
+                elif event.key == K_s:  # Body states draw mode
+                    draw_body_stats = not draw_body_stats
                 elif event.key == K_g:  # Toggle gravity 
                     gravity_on = not gravity_on
-                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Trail Length: {})".format("On" if gravity_on else "Off",
-                                                                                                         trail_length))
+                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
+                elif event.key == K_k:  # Toggle Collision
+                    collision_on = not collision_on
+                    pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
+                                                                                                                        "On" if collision_on else "Off",
+                                                                                                                        trail_length))
                 elif event.key == K_c:  # Enter center of mass frame
                     for body in bodies:
                         body.setPos(body.pos + (center - root.center))
@@ -721,6 +814,8 @@ def run_trails(bodies: Iterable[Body],
                 _root, con_time = constructQuadTree(_bodies)
                 if gravity_on:
                     handleGravity(_bodies, _root, theta)
+                if collision_on:
+                    handleCollision(_bodies, _root, elasticity=elasticity)
                 for i, _body in enumerate(_bodies):
                     trails[i].append(_body.pos.copy())
                     _body.update(dt)
@@ -744,15 +839,13 @@ def run_trails(bodies: Iterable[Body],
             pe += body.getPE() / 2
             ke += body.getKE()
             p += body.getP()
-            body.setAcc(Vector2(0, 0))
-            body.setPE(0)
 
             body.draw(window)
             if draw_vel:
                 body.draw_vel(window, scale=vel_scale, color=WHITE, max_length=10000)
                 pygame.draw.circle(window, WHITE, (body.pos + body.vel * vel_scale), vel_click_size)
-        
-        # Displaying energy
+
+        # Draw modes
         if draw_energy:
             ke_img = font.render("Kinetic Energy: {:.2f}".format(ke), True, RED) 
             pe_img = font.render("Potential Energy: {:.2f}".format(pe), True, RED) 
@@ -762,15 +855,54 @@ def run_trails(bodies: Iterable[Body],
             window.blit(pe_img, (5, 25))
             window.blit(tme_img, (5, 45))
             window.blit(p_img, (5, 65))
+        if draw_body_stats:
+            stats_body = None
+            if clicked_body_idx is not None:
+                stats_body = bodies[clicked_body_idx]
+            else:
+                for body in bodies:
+                    if dist(body.pos, event_pos) < body.radius:
+                        stats_body = body
+                        break
+            if stats_body is not None:
+                body_mr_string = "Mass: {:.2f}, Radius: {:.2f}".format(stats_body.mass, stats_body.radius)
+                body_mr_img = font.render(body_mr_string, True, GREEN)
+                body_pos_string = "Pos: ({:.2f}, {:.2f})".format(stats_body.pos.x, stats_body.pos.y)
+                body_pos_img = font.render(body_pos_string, True, GREEN)
+                body_vel_string = "Vel: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.vel.x, stats_body.vel.y, stats_body.vel.magnitude())
+                body_vel_img = font.render(body_vel_string, True, GREEN)
+                body_acc_string = "Acc: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.acc.x, stats_body.acc.y, stats_body.acc.magnitude())
+                body_acc_img = font.render(body_acc_string, True, GREEN)
+                body_p_string = "P: ({:.2f}, {:.2f}), Mag: {:.2f}".format(stats_body.getP().x, stats_body.getP().y, stats_body.getP().magnitude())
+                body_p_img = font.render(body_p_string, True, GREEN) 
+                body_ke_string = "KE: {:.2f}".format(stats_body.getKE())
+                body_ke_img = font.render(body_ke_string, True, GREEN)
+                max_width = max([font.size(body_mr_string)[0],
+                                 font.size(body_pos_string)[0],
+                                 font.size(body_vel_string)[0],
+                                 font.size(body_acc_string)[0],
+                                 font.size(body_p_string)[0],
+                                 font.size(body_ke_string)[0]])
+                window.blit(body_mr_img, (width - max_width - 5, height - 125))
+                window.blit(body_pos_img, (width - max_width - 5, height - 105))
+                window.blit(body_vel_img, (width - max_width - 5, height - 85))
+                window.blit(body_acc_img, (width - max_width - 5, height - 65))
+                window.blit(body_p_img, (width - max_width - 5, height - 45))
+                window.blit(body_ke_img, (width - max_width - 5, height - 25))
+
+        # Reset body accelerations
+        for body in bodies:
+            body.setAcc(Vector2(0, 0))
+            body.setPE(0)
 
         pygame.display.update()
 
 
 # Setting up initial state ------------------------------------------------------------------------
 bodies = []
-setup = "nbody".upper()
+setup = "disk".upper()
 
-# Protoplanetary Disk
+# Protoplanetary Disk Setup
 if setup == "DISK":
     bodies.append(Body(width / 2, height / 2, 100000, 50))
     main_star = bodies[0]
@@ -787,7 +919,7 @@ if setup == "DISK":
         planet.setVel(vel)
         bodies.append(planet)
 
-# Grid
+# Grid Setup
 elif setup == "GRID":
     star = Body(width / 2, height / 2, 100000, 50)
     star1 = Body(width // 4, 3 * height // 4, 100000, 50)
@@ -798,12 +930,30 @@ elif setup == "GRID":
         for n in range(0, width, 10):
             bodies.append(Body(i, n, 0.5, 0.5))
 
-# Small Number of Bodies
+# Small Number of Bodies Setup
 elif setup == "NBODY":
     for i in range(25):
-        body = Body(random.randint(50, 750), random.randint(50, 750), random.randint(80, 120), 10)
-        # body.setVel(Vector2(random.randint(-5, 5) / 10, random.randint(-5, 5) / 10))
+        body = Body(random.randint(0, width), random.randint(0, height), 100, 10)
+        body.setVel(Vector2(random.randint(-1, 1), random.randint(-1, 1)))
         bodies.append(body)
+
+# Diffusion Setup
+elif setup == "DIFFUSION":
+    for i in range(1000):
+        # r = math.sqrt(random.random()) * min(width, height) / 2
+        # theta = random.random() * 2 * math.pi
+        # body = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 1, 1)
+        body = Body(random.randint(3 * width // 4, width), random.randint(0, height), 1, 1, color=RED)
+        body.setVel(Vector2(random.randint(-25, 25), random.randint(-25, 25)))
+        bodies.append(body)
+    for i in range(2000):
+        # r = math.sqrt(random.random()) * min(width, height) / 2
+        # theta = random.random() * 2 * math.pi
+        # body = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 1, 1)
+        body = Body(random.randint(0, width), random.randint(0, height), 1, 1, color=BLUE)
+        body.setVel(Vector2(random.randint(-25, 25), random.randint(-25, 25)))
+        bodies.append(body)
+    # bodies.append(Body(width // 2, height // 2, 100, 50))
 
 # Trails Setup
 elif setup == "TRAILS":
@@ -814,11 +964,11 @@ elif setup == "TRAILS":
     bodies.append(body)
 
     body = Body(500, 400, 100, 12, color=BLUE)
-    # bodies.append(body)
+    bodies.append(body)
 # -------------------------------------------------------------------------------------------------
 
-run(bodies=bodies, dt=0.1, theta=THETA, init_fps=100 / DT, merge=False, collision=False, start_paused=False, vel_scale=100, acc_scale=100, elasticity=0.9, init_unpaused_frames=1)
+run(bodies=bodies, dt=0.1, theta=THETA, init_fps=100 / DT, gravity=True, merge=False, collision=False, wall_collision=False, start_paused=False, vel_scale=100, acc_scale=100, elasticity=1.0, init_unpaused_frames=1)
 # render(bodies=bodies, dt=0.1, theta=THETA, frames=2500, init_fps=80, merge=True, collision=False, draw_vel=False, draw_acc=True, draw_energy=True, vel_scale=1, acc_scale=10)
-# run_trails(bodies=bodies, dt=0.5, theta=THETA, trail_length=2500, vel_scale=10, vel_click_size=3)
+# run_trails(bodies=bodies, dt=0.5, theta=THETA, trail_length=2500, vel_scale=100, vel_click_size=3, elasticity=1.0)
 
 pygame.quit()
