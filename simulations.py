@@ -128,7 +128,7 @@ def calculateWallCollision(body: Body, left=0, right=width, top=0, bottom=height
 
 
 # Constructing a quad tree to fit the simulation
-def _constructQuadTree(bodies: Iterable[Body]) -> Node:
+def _constructQuadTree(bodies: Iterable[Body], *args, **kwargs) -> Node:
     min_x, max_x = 0, width
     min_y, max_y = 0, height
     for body in bodies:
@@ -140,7 +140,7 @@ def _constructQuadTree(bodies: Iterable[Body]) -> Node:
             min_y = body.pos.y
         elif body.pos.y > max_y:
             max_y = body.pos.y
-    root = Node(min_x, min_y, max(max_x - min_x, max_y - min_y))
+    root = Node(min_x, min_y, max(max_x - min_x, max_y - min_y), *args, **kwargs)
     for body in bodies:
         root.addBody(body)
     return root
@@ -183,9 +183,9 @@ def _handleCollision(body: Body, root: Node, elasticity: float=1, *args, **kwarg
                 _handleCollision(body, child, elasticity=elasticity, *args, **kwargs)
 
 
-def constructQuadTree(bodies: Iterable[Body]) -> tuple[Node, float]:
+def constructQuadTree(bodies: Iterable[Body], *args, **kwargs) -> tuple[Node, float]:
     start = time.perf_counter()
-    root = _constructQuadTree(bodies)
+    root = _constructQuadTree(bodies, *args, **kwargs)
     end = time.perf_counter()
     return root, end - start
 
@@ -235,7 +235,7 @@ def run(bodies: Iterable[Body],
         dt: float=DT, theta: 
         float=THETA, 
         init_fps: int=100, 
-        gravity: bool=False,
+        gravity: bool=True,
         merge: bool=False, 
         collision: bool=False,
         wall_collision: bool=False, 
@@ -243,10 +243,12 @@ def run(bodies: Iterable[Body],
         vel_scale: float=1, 
         acc_scale: float=1, 
         elasticity: float=1,
-        init_unpaused_frames: int=1) -> None:
+        init_unpaused_frames: int=1,
+        depth: int=100) -> None:
     # Timing and events
     fps = init_fps
     past_pos = tupleToVector2(pygame.mouse.get_pos())
+    depth = depth
 
     # Boolean flags and click modes
     paused = start_paused
@@ -275,7 +277,7 @@ def run(bodies: Iterable[Body],
     collision_times = np.empty(0)
 
     # Game loop
-    root, con_time = constructQuadTree(bodies)
+    root, con_time = constructQuadTree(bodies, depth=depth)
     sim_on = True
     pygame.display.set_caption("Simulation (Gravity: {}, Merge: {}, Collision: {})".format("On" if gravity_on else "Off", 
                                                                                            "On" if merge_on else "Off",
@@ -340,6 +342,15 @@ def run(bodies: Iterable[Body],
                     pygame.display.set_caption("Simulation (Gravity: {}, Merge: {}, Collision: {})".format("On" if gravity_on else "Off", 
                                                                                                            "On" if merge_on else "Off",
                                                                                                            "On" if collision_on else "Off"))
+                elif event.key == K_t:  # Print runtime metrics
+                    print("Average Construct Time: {}".format(np.mean(construct_times)))
+                    print("Average Gravity Time: {}".format(np.mean(gravity_times)))
+                    print("Average Merge Time: {}".format(np.mean(merge_times)))
+                    print("Average Collision Time: {}".format(np.mean(collision_times)))
+                elif event.key == K_w:
+                    depth += 1
+                elif event.key == K_s:
+                    depth = max(1, depth - 1)
                 elif event.key == K_1:  # Tree draw mode
                     draw_gravity = False
                     draw_merge = False
@@ -368,7 +379,7 @@ def run(bodies: Iterable[Body],
 
         # Updating the frame
         if not paused or unpaused_frames > 0:
-            root, con_time = constructQuadTree(bodies)
+            root, con_time = constructQuadTree(bodies, depth=depth)
             construct_times = np.append(construct_times, con_time)
 
             if gravity_on:
@@ -412,7 +423,7 @@ def run(bodies: Iterable[Body],
                 p += body.getP()
             unpaused_frames = max(0, unpaused_frames - 1)
         else:
-            root, con_time = constructQuadTree(bodies)
+            root, con_time = constructQuadTree(bodies, depth=depth)
 
             # Still calculates gravity to display accelerations
             if gravity_on:
@@ -763,7 +774,7 @@ def run_trails(bodies: Iterable[Body],
                 elif event.key == K_e:  # Energy draw mode
                     draw_energy = not draw_energy
                 elif event.key == K_r:  # Run simulation
-                    run(bodies, dt=dt, collision=collision_on, *args, **kwargs)
+                    run(bodies, dt=dt, gravity=gravity_on, collision=collision_on, *args, **kwargs)
                     pygame.display.set_caption("Trail Simulation (Gravity: {}, Collision: {}, Trail Length: {})".format("On" if gravity_on else "Off",
                                                                                                                         "On" if collision_on else "Off",
                                                                                                                         trail_length))
@@ -900,7 +911,7 @@ def run_trails(bodies: Iterable[Body],
 
 # Setting up initial state ------------------------------------------------------------------------
 bodies = []
-setup = "disk".upper()
+setup = "DISK".upper()
 
 # Protoplanetary Disk Setup
 if setup == "DISK":
@@ -939,7 +950,7 @@ elif setup == "NBODY":
 
 # Diffusion Setup
 elif setup == "DIFFUSION":
-    for i in range(1000):
+    for i in range(0):
         # r = math.sqrt(random.random()) * min(width, height) / 2
         # theta = random.random() * 2 * math.pi
         # body = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 1, 1)
@@ -950,14 +961,14 @@ elif setup == "DIFFUSION":
         # r = math.sqrt(random.random()) * min(width, height) / 2
         # theta = random.random() * 2 * math.pi
         # body = Body(r * math.cos(theta) + width / 2, r * math.sin(theta) + height / 2, 1, 1)
-        body = Body(random.randint(0, width), random.randint(0, height), 1, 1, color=BLUE)
+        body = Body(random.randint(0, width), random.randint(0, height), 10, 1, color=BLUE)
         body.setVel(Vector2(random.randint(-25, 25), random.randint(-25, 25)))
         bodies.append(body)
     # bodies.append(Body(width // 2, height // 2, 100, 50))
 
 # Trails Setup
 elif setup == "TRAILS":
-    body = Body(500, 600, 100, 12, color=RED)
+    body = Body(500, 600, 10000, 12, color=RED)
     bodies.append(body)
 
     body = Body(300, 400, 100, 12, color=GREEN)
@@ -967,7 +978,7 @@ elif setup == "TRAILS":
     bodies.append(body)
 # -------------------------------------------------------------------------------------------------
 
-run(bodies=bodies, dt=0.1, theta=THETA, init_fps=100 / DT, gravity=True, merge=False, collision=False, wall_collision=False, start_paused=False, vel_scale=100, acc_scale=100, elasticity=1.0, init_unpaused_frames=1)
+run(bodies=bodies, dt=0.1, theta=THETA, init_fps=100 / DT, gravity=True, merge=True, collision=False, wall_collision=False, start_paused=False, vel_scale=100, acc_scale=100, elasticity=1.0, init_unpaused_frames=1, depth=5)
 # render(bodies=bodies, dt=0.1, theta=THETA, frames=2500, init_fps=80, merge=True, collision=False, draw_vel=False, draw_acc=True, draw_energy=True, vel_scale=1, acc_scale=10)
 # run_trails(bodies=bodies, dt=0.5, theta=THETA, trail_length=2500, vel_scale=100, vel_click_size=3, elasticity=1.0)
 

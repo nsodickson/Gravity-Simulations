@@ -1,12 +1,11 @@
 import pygame
 from pygame.locals import *
 from pygame.math import Vector2
-from utils import *
 from typing import Self
 
 # Local imports
-from body import Body
-
+from body import *
+from utils import *
 
 class Node:
     def __init__(self: Self, x: float, y: float, s: float, depth: int=100) -> None:

@@ -1,8 +1,10 @@
 import pygame
 from pygame.locals import *
 from pygame.math import Vector2
-from utils import *
 from typing import Self
+
+# Local Imports
+from utils import *
 
 
 class Body(pygame.sprite.Sprite):
